@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 from ..data import PhaseData
-from ..close.contracts import digest, encoded, file_hash, seal
+from ..close.contracts import encoded, file_hash, seal
 from ..ic.model import digest as ic_digest
 from ..close.rules import month_bounds
 from .upstream import load_deliveries
@@ -73,7 +73,6 @@ def _ic_inputs(phase, deliverables):
                                    "journal_entry": entry, "recorded_ids": [],
                                    "evidence": findings[0]["evidence"]})
     # Preserve AP business identity independently of transient journal IDs.
-    from .upstream import load_deliveries
     ap = {r["doc_id"]: r for r in load_deliveries(phase, deliverables, ("ap",))["ap"]}
     import m6_fixture
     for posting in postings["ap"]:

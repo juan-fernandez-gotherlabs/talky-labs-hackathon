@@ -8,9 +8,6 @@ an explicit AP projection scope; receipt coverage always covers the entire queue
 from __future__ import annotations
 
 import argparse
-from collections import Counter
-from copy import deepcopy
-from datetime import date, datetime
 import hashlib
 import json
 from pathlib import Path
@@ -21,16 +18,13 @@ from kalmora.ic.context import Context
 from kalmora.ic.model import Upstream, digest
 from kalmora.ic.handoff import (receipt_coverage, ap_delivery as _ap_delivery, bank_delivery,
                                 _already_recorded, _pool_link)
-from kalmora.ledger import Ledger, iter_entries
-from kalmora.validation import validate_entry
+from kalmora.ledger import Ledger
 
 PHASE = "phase_dev"
 REFERENCE_MEMBERS = {
     "ap": f"participant/{PHASE}/golden/ap.jsonl",
     "bank_rec": f"participant/{PHASE}/golden/bank_rec.jsonl",
 }
-POSTED = {"POST", "POST_PAYMENT_BLOCK"}
-INVOICE_TYPES = {"INVOICE", "CREDIT_NOTE", "DOWN_PAYMENT_REQUEST"}
 
 
 def encode(value: object) -> bytes:
@@ -65,7 +59,7 @@ class Sources:
         return "golden_fixture:" + REFERENCE_MEMBERS[producer]
 
     def producer(self, producer):
-        return "golden_fixture/" + producer
+        return "golden_fixture/" + {"ap": "AP", "bank_rec": "banks"}[producer]
 
     def _read(self, member: str) -> bytes:
         parts = Path(member).parts
