@@ -42,6 +42,9 @@ def solve_ap(phase: Path) -> tuple[list[dict[str, Any]], int]:
             else:
                 row.update({key: result[key] for key in CODED_FIELDS})
                 row["lines"], row["journal_entry"] = result["lines"], result["journal_entry"]
+                for line in row["journal_entry"]["lines"]:
+                    if line["account"] == "40700000" and not line.get("partner"):
+                        line["partner"] = row["vendor_id"]
         elif doc in observed and "error" not in observed[doc]:
             row["lines"] = observed[doc]["lines"]
         rows.append(row)
