@@ -27,8 +27,24 @@ class CoverageTests(unittest.TestCase):
         self.assertFalse(set(required) - covered)
         for row in rules:
             self.assertTrue(row["issues"])
+            self.assertLessEqual(len(row["issues"]), 4)
             self.assertTrue(all(27 <= issue <= 113 for issue in row["issues"]))
             self.assertIn(row["status"], {"planned", "m0_delivered"})
             self.assertTrue(row["acceptance"])
+            self.assertEqual(len(row["july_cases"]), len(set(row["july_cases"])))
+            self.assertEqual(row["july_case_count"], len(row["july_cases"]))
+            selector = row.get("july_evidence_selector")
+            if selector:
+                self.assertLessEqual(row["july_case_count"], data["golden_rows"][selector["task"]])
+                self.assertTrue(all(case.startswith(selector["task"] + ":") for case in row["july_cases"]))
+            self.assertTrue(row["july_count_meaning"])
+            self.assertEqual(set(row["issue_titles"]), {str(n) for n in row["issues"]})
+        by_id = {r["rule_id"]: r for r in rules}
+        self.assertEqual(by_id["P1-08"]["status"], "planned")
+        self.assertIn(34, by_id["P1-07"]["issues"])
+        self.assertIn(33, by_id["P1-03"]["issues"])
+        markdown = (Path(__file__).resolve().parents[1] / "docs/coverage.md").read_text()
+        for rule_id in ids:
+            self.assertIn("| " + rule_id + " |", markdown)
         self.assertEqual(data["golden_rows"], {"ap": 305, "ar_billing": 26, "ar_cash": 32,
                                               "bank_rec": 12, "ic": 5, "close": 76})
