@@ -49,7 +49,7 @@ def _ap(phase: Path, target: Path, _work: Path) -> dict[str, Any]:
     from .v0.solve import solve_ap, write_jsonl
     rows, errors = solve_ap(phase)
     write_jsonl(target, rows)
-    return {"coding_errors": errors}
+    return {"coding_errors": errors, "complete": errors == 0}
 
 
 def _ar_billing(phase: Path, target: Path, _work: Path) -> dict[str, Any]:
@@ -92,22 +92,30 @@ def _commit() -> str:
 
 
 def _ic(phase: Path, target: Path, work: Path) -> dict[str, Any]:
-    """Runs ``python -m kalmora.ic --recorded-only``: AP and bank deliveries are not fed in, and exit 3 says so."""
-    out = work / "ic"
+    """Consume this run's AP/bank outputs and persist the audit and owned delta."""
+    from .v0.upstream import build_ic_upstream
+    out = target.parent.parent / "handoffs" / "ic"
+    shutil.rmtree(out, ignore_errors=True)
+    upstream = build_ic_upstream(phase, target.parent, out)
     done = subprocess.run([sys.executable, "-m", "kalmora.ic", "--phase", str(phase), "--out", str(out),
-                           "--recorded-only", "--backend-commit", _commit()],
+                           "--upstream", str(upstream), "--backend-commit", _commit()],
                           capture_output=True, text=True, check=False)
     if done.returncode not in (0, 3):
         raise RuntimeError((done.stderr or done.stdout).strip().splitlines()[-1] if (done.stderr or done.stdout).strip()
                            else f"exit code {done.returncode}")
     shutil.copyfile(out / "ic.jsonl", target)
-    return {"integration": "recorded_only", "complete": done.returncode == 0}
+    return {"integration": "producer_deliveries", "complete": done.returncode == 0,
+            "audit": str(out / "audit.json")}
 
 
 def _close(phase: Path, target: Path, work: Path) -> dict[str, Any]:
     from .v0.close_handoff import run_close as close_from_deliveries
-    shutil.copyfile(close_from_deliveries(phase, target.parent, work / "close"), target)
-    return {"integration": "real_upstream"}
+    out = target.parent.parent / "handoffs" / "close"
+    shutil.rmtree(out, ignore_errors=True)
+    shutil.copyfile(close_from_deliveries(phase, target.parent, out), target)
+    freeze = json.loads((out / "frozen" / "freeze.json").read_text())
+    return {"integration": freeze["integration"], "complete": freeze["engine_data_complete"],
+            "freeze": str(out / "frozen" / "freeze.json")}
 
 
 ENGINES: dict[str, Callable[[Path, Path, Path], dict[str, Any]]] = {
@@ -183,7 +191,7 @@ def events(module: str, rows: list[Row], seq: Callable[[], int]) -> Iterator[Row
 
 # ---------------------------------------------------------------- command
 def run_close(phase: Path, out: Path, modules: list[str] | None = None, submissions: Path | None = None) -> dict[str, Any]:
-    """Run the close. Returns ``{"ok", "tasks"}``; ``ok`` is False when any engine that ran failed."""
+    """Run the close; incomplete, failed or unavailable modules keep ok false."""
     phase, out = phase.resolve(), out.resolve()
     if out.is_relative_to(phase) or "golden" in out.parts:
         raise ValueError("close output must be outside the read-only phase directory")
@@ -202,6 +210,7 @@ def run_close(phase: Path, out: Path, modules: list[str] | None = None, submissi
             task: dict[str, Any] = {"started_at": _now()}
             tasks[module] = task
             target = out / "deliverables" / f"{module}.jsonl"
+            target.unlink(missing_ok=True)  # A failed repeat cannot reuse an old delivery.
             source = submissions / f"{module}.jsonl" if submissions else None
             try:
                 if module in ENGINES:
@@ -216,7 +225,7 @@ def run_close(phase: Path, out: Path, modules: list[str] | None = None, submissi
                 with trace.open("a", encoding="utf-8") as handle:
                     for event in events(module, rows, lambda: next(counter)):
                         handle.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
-                task.update(state="done", rows=len(rows))
+                task.update(state="done" if task.get("complete", True) else "incomplete", rows=len(rows))
             except Exception as exc:  # noqa: BLE001 - one module failing must not hide the others
                 target.unlink(missing_ok=True)
                 task.update(state="failed", error=f"{type(exc).__name__}: {exc}")
@@ -228,7 +237,7 @@ def run_close(phase: Path, out: Path, modules: list[str] | None = None, submissi
     except (OSError, ValueError):
         manifest = {}
     manifest.update(agent_version=__version__, tasks=tasks, models=manifest.get("models", []), human_overrides=0,
-                    runtime_s=manifest.get("runtime_s") or round(time.monotonic() - began, 3),
+                    runtime_s=round(time.monotonic() - began, 3),
                     cost_usd_total=manifest.get("cost_usd_total", 0))
     atomic_json(manifest_path, manifest)
-    return {"ok": not any(t.get("state") == "failed" for t in tasks.values()), "tasks": tasks}
+    return {"ok": all(t.get("state") == "done" for t in tasks.values()), "tasks": tasks}
