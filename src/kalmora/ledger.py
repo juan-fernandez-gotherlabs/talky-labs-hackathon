@@ -39,6 +39,14 @@ class Ledger:
     def from_entries(cls,entries):
         ledger=cls()
         for entry in iter_entries(entries):
+            if "provenance" in entry:
+                provenance=entry["provenance"]
+                if not isinstance(provenance,dict) or any(not isinstance(provenance.get(field),str) or not provenance[field] for field in ("event_id","stage")):
+                    raise ValueError("restored provenance requires event_id and stage")
+                owner=(provenance["event_id"],provenance["stage"])
+                if owner in ledger._owners:
+                    raise ValueError(f"duplicate restored adjustment stage: {owner}")
+                ledger._owners.add(owner)
             if entry.get("id") in ledger._ids:
                 raise ValueError(f"duplicate journal id: {entry['id']}")
             if entry.get("id"): ledger._ids.add(entry["id"])
