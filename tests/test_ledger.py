@@ -3,6 +3,15 @@ from kalmora.ledger import Ledger
 
 
 class LedgerTests(unittest.TestCase):
+    def test_invalid_line_does_not_mutate_ledger(self):
+        ledger = Ledger()
+        with self.assertRaisesRegex(ValueError, 'expected object'):
+            ledger.add_entry({'company': '1100', 'lines': [None]}, event_id='BL1', stage='bank_import')
+        self.assertEqual(ledger.entries, [])
+        valid = {'company': '1100', 'lines': [{'account': '57200001', 'debit': 1, 'credit': 0}, {'account': '55500000', 'debit': 0, 'credit': 1}]}
+        ledger.add_entry(valid, event_id='BL1', stage='bank_import')
+        self.assertEqual(len(ledger.entries), 1)
+
     def test_restored_provenance_retains_duplicate_protection(self):
         entry={'company':'1100','lines':[{'account':'57200001','debit':100,'credit':0},{'account':'55500000','debit':0,'credit':100}]}
         ledger=Ledger();ledger.add_entry(entry,event_id='BL1',stage='bank_import')
